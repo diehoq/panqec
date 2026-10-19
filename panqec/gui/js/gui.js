@@ -14,6 +14,7 @@ const defaultParams = {
     Lx: 6,
     Ly: 6,
     Lz: 6,
+    nTetrahedra: 3,
     errorModel: 'Depolarizing',
     errorProbability: 0.1,
     decoder: 'BP-OSD',
@@ -229,6 +230,10 @@ class Interface {
             }
             this.params.Ly = this.params.Lx;
             this.params.Lz = this.params.Lx;
+
+            if (this.params.codeName == 'Tetrahelix Code') {
+                this.params.Ly = parseInt(this.params.nTetrahedra);
+            }
         }
         else if (this.params.coprime)
             this.params.Lx += 1;
@@ -344,11 +349,19 @@ class Interface {
 
         var codeFolder = this.menu.__folders['Code'];
 
-        codeFolder.__controllers.forEach(controller => {
-            if (controller.property == 'codeDeformationName') {
+        codeFolder.__controllers.slice().forEach(controller => {
+            if (controller.property == 'codeDeformationName'
+                || controller.property == 'nTetrahedra') {
                 controller.remove();
             }
+            else {
+                controller.updateDisplay();
+            }
         });
+
+        if (this.params.codeName == 'Tetrahelix Code') {
+            codeFolder.add(this.params, 'nTetrahedra', 1, 20, 1).name('Number of tetrahedra').onFinishChange(this.changeLatticeSize.bind(this));
+        }
 
         codeFolder.add(this.params, 'codeDeformationName', deformationNames).name('Clifford deformation').onChange(this.changeLatticeSize.bind(this));
 
