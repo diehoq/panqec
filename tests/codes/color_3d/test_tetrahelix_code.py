@@ -17,9 +17,12 @@ def expected_n(d, n_tetrahedra):
 
 class TestTetrahelixCode(StabilizerCodeTest):
 
-    @pytest.fixture(params=[(3, 1), (3, 4), (5, 3)])
+    @pytest.fixture(params=[
+        (3, 1, 'Z'), (3, 4, 'Z'), (5, 3, 'Z'), (3, 4, 'X'), (5, 3, 'X')
+    ])
     def code(self, request):
-        return TetrahelixCode(*request.param)
+        d, n_tetrahedra, weld_pauli = request.param
+        return TetrahelixCode(d, n_tetrahedra, weld_pauli=weld_pauli)
 
 
 def test_invalid_parameters_are_rejected():
@@ -32,13 +35,19 @@ def test_invalid_parameters_are_rejected():
     with pytest.raises(ValueError):
         TetrahelixCode(3, 2, 5)
 
+    with pytest.raises(ValueError):
+        TetrahelixCode(3, 2, weld_pauli='Y')
+
 
 def test_default_number_of_tetrahedra_is_distance():
     code = TetrahelixCode(3)
 
     assert code.n_tetrahedra == 3
-    assert code.params == {'L_x': 3, 'L_y': 3, 'L_z': 3}
+    assert code.params == {'L_x': 3, 'L_y': 3, 'L_z': 3, 'weld_pauli': 'Z'}
     assert TetrahelixCode(**code.params).n == code.n
+
+    code = TetrahelixCode(3, weld_pauli='X')
+    assert TetrahelixCode(**code.params).weld_pauli == 'X'
 
 
 def test_single_tetrahedron_is_tetrahedral_code():
@@ -66,6 +75,78 @@ def test_code_parameters(d, n_tetrahedra):
 
     commutators = bs_prod(code.stabilizer_matrix, code.stabilizer_matrix)
     assert np.all(to_array(commutators) == 0)
+
+
+@pytest.mark.parametrize("d, n_tetrahedra", [
+    (3, 2), (3, 4), (3, 6), (5, 2), (5, 5), (7, 3)
+])
+def test_x_weld_code_parameters(d, n_tetrahedra):
+    code = TetrahelixCode(d, n_tetrahedra, weld_pauli='X')
+
+    assert code.n == expected_n(d, n_tetrahedra)
+    assert code.k == 1
+    assert brank(code.stabilizer_matrix) == code.n - 1
+
+    commutators = bs_prod(code.stabilizer_matrix, code.stabilizer_matrix)
+    assert np.all(to_array(commutators) == 0)
+
+
+@pytest.mark.parametrize("n_tetrahedra, distance", [(2, 3), (3, 3), (4, 5)])
+def test_x_weld_distance(n_tetrahedra, distance):
+    """The X logical is an edge contracted in three consecutive tetrahedra,
+    so the distance grows with the number of tetrahedra"""
+    code = TetrahelixCode(3, n_tetrahedra, weld_pauli='X')
+    n = code.n
+    Hz = to_array(code.Hz)
+    logical_z = code.logicals_z[:, n:]
+
+    assert code.d == distance
+
+    for weight in range(1, distance):
+        for support in combinations(range(n), weight):
+            error = np.zeros(n, dtype='uint8')
+            error[list(support)] = 1
+            assert (
+                np.any(Hz.dot(error) % 2)
+                or not np.any(logical_z.dot(error) % 2)
+            )
+
+
+def test_x_weld_welds_faces():
+    code = TetrahelixCode(3, 4, weld_pauli='X')
+
+    welded_paulis = {
+        location[1][0] for location in code.stabilizer_coordinates
+        if code.is_welded(location)
+    }
+    assert welded_paulis == {'X'}
+
+    for location in code.stabilizer_coordinates:
+        if location[1][0] == 'Z':
+            assert len(code.stabilizer_members(location)) == 1
+
+
+@pytest.mark.parametrize("weld_pauli", ['X', 'Z'])
+def test_weld_is_highlighted_in_representations(weld_pauli):
+    code = TetrahelixCode(3, 3, weld_pauli=weld_pauli)
+
+    for qubit in code.qubit_coordinates:
+        rep = code.qubit_representation(qubit)
+        assert ('weld' in rep) == code.is_contracted(qubit)
+
+    n_contracted = sum(map(code.is_contracted, code.qubit_coordinates))
+    # Two shared facets of 7 qubits meeting on an edge of 3 qubits
+    assert n_contracted == 2*7 - 3
+
+    n_welded = 0
+    for location in code.stabilizer_coordinates:
+        rep = code.stabilizer_representation(location)
+        assert ('weld' in rep) == code.is_welded(location)
+        if code.is_welded(location):
+            assert location[1][0] == weld_pauli
+            n_welded += 1
+
+    assert n_welded > 0
 
 
 @pytest.mark.parametrize("n_tetrahedra", [2, 3, 4, 5])

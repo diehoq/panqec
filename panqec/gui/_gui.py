@@ -13,7 +13,7 @@ from panqec.codes import (
     Planar3DCode, RotatedToric3DCode, XCubeCode,
     HollowPlanar3DCode, HollowRhombicCode,
     Color3DCode, Color666PlanarCode, Color666ToricCode, Color488Code,
-    TetrahedralColor3DCode, TetrahelixCode
+    TetrahedralColor3DCode, TetrahelixCode, WeldedCode
 )
 from panqec.decoders import (
     MatchingDecoder, RotatedSweepMatchDecoder,
@@ -103,10 +103,14 @@ class GUI():
         code_name = data['code_name']
         deformation_name = data['code_deformation_name']
 
+        kwargs = {}
+        if issubclass(codes[code_name], WeldedCode) and 'weld_pauli' in data:
+            kwargs['weld_pauli'] = data['weld_pauli']
+
         if code_name in self.code_names['2d']:
-            code = codes[code_name](Lx, Ly)
+            code = codes[code_name](Lx, Ly, **kwargs)
         elif code_name in self.code_names['3d']:
-            code = codes[code_name](Lx, Ly, Lz)
+            code = codes[code_name](Lx, Ly, Lz, **kwargs)
         else:
             raise ValueError(f'Code {code_name} not recognized')
 

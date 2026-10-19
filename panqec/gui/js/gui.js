@@ -15,6 +15,7 @@ const defaultParams = {
     Ly: 6,
     Lz: 6,
     nTetrahedra: 3,
+    weldType: 'Z',
     errorModel: 'Depolarizing',
     errorProbability: 0.1,
     decoder: 'BP-OSD',
@@ -42,7 +43,8 @@ const defaultKeyCode = {
     'x-error': 17, // 'ctrl'
     'z-error': 16, // 'shift'
     'contract': 67, // 'c'
-    'check-logical-error': 76  // 'l'
+    'check-logical-error': 76,  // 'l'
+    'weld': 87  // 'w'
 };
 
 class Interface {
@@ -266,6 +268,7 @@ class Interface {
                 'Lx': this.params.Lx,
                 'Ly': this.params.Ly,
                 'Lz': this.params.Lz,
+                'weld_pauli': this.params.weldType,
                 'code_name': this.params.codeName,
                 'code_deformation_name': this.params.codeDeformationName,
                 'rotated_picture': this.params.rotated
@@ -351,7 +354,8 @@ class Interface {
 
         codeFolder.__controllers.slice().forEach(controller => {
             if (controller.property == 'codeDeformationName'
-                || controller.property == 'nTetrahedra') {
+                || controller.property == 'nTetrahedra'
+                || controller.property == 'weldType') {
                 controller.remove();
             }
             else {
@@ -361,6 +365,7 @@ class Interface {
 
         if (this.params.codeName == 'Tetrahelix Code') {
             codeFolder.add(this.params, 'nTetrahedra', 1, 20, 1).name('Number of tetrahedra').onFinishChange(this.changeLatticeSize.bind(this));
+            codeFolder.add(this.params, 'weldType', {'Z (cells)': 'Z', 'X (faces)': 'X'}).name('Weld type').onChange(this.changeLatticeSize.bind(this));
         }
 
         codeFolder.add(this.params, 'codeDeformationName', deformationNames).name('Clifford deformation').onChange(this.changeLatticeSize.bind(this));
@@ -435,6 +440,7 @@ class Interface {
                 <tr><td><b>O</b></td><td>Toggle Opacity</td></tr>\
                 <tr><td><b>Z</b></td><td>Logical Z</td></tr>\
                 <tr><td><b>X</b></td><td>Logical X</td></tr>\
+                <tr><td><b>W</b></td><td>Show welds</td></tr>\
                 </table>\
             ";
         }
@@ -450,6 +456,7 @@ class Interface {
                 <tr><td><b>O</b></td><td>Toggle Opacity</td></tr>\
                 <tr><td><b>Z</b></td><td>Logical Z</td></tr>\
                 <tr><td><b>X</b></td><td>Logical X</td></tr>\
+                <tr><td><b>W</b></td><td>Show welds</td></tr>\
                 </table>\
             ";
         }
@@ -475,6 +482,7 @@ class Interface {
                 'Lx': this.params.Lx,
                 'Ly': this.params.Ly,
                 'Lz': this.params.Lz,
+                'weld_pauli': this.params.weldType,
                 'p': this.params.errorProbability,
                 'max_bp_iter': this.params.max_bp_iter,
                 'alpha': this.params.alpha,
@@ -505,6 +513,7 @@ class Interface {
                 'Lx': this.params.Lx,
                 'Ly': this.params.Ly,
                 'Lz': this.params.Lz,
+                'weld_pauli': this.params.weldType,
                 'code_name': this.params.codeName,
                 'code_deformation_name': this.params.codeDeformationName
             })
@@ -525,6 +534,7 @@ class Interface {
                 'Lx': this.params.Lx,
                 'Ly': this.params.Ly,
                 'Lz': this.params.Lz,
+                'weld_pauli': this.params.weldType,
                 'p': this.params.errorProbability,
                 'noise_deformation_name': this.params.noiseDeformationName,
                 'error_model': this.params.errorModel,
@@ -691,6 +701,9 @@ class Interface {
         }
         else if (keyCode == this.keycode['check-logical-error']) {
             this.checkLogicalError();
+        }
+        else if (keyCode == this.keycode['weld']) {
+            this.code.toggleWeld();
         }
     };
 

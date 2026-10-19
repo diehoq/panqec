@@ -20,6 +20,7 @@ class TopologicalCode {
         this.m = this.stabilizerData.length // number of stabilizers
 
         this.opacityActivated = false;
+        this.weldActivated = false;
         this.currentIndexLogical = {'X': 0, 'Z': 0};
 
         this.qubits = new Array(this.n);
@@ -64,6 +65,13 @@ class TopologicalCode {
             this.errors.set(this.n + qubit.index, (this.errors.get(this.n + qubit.index) + 1) % 2)
         }
 
+        this.updateQubitAppearance(qubit);
+
+        if (updateStabilizers)
+            this.updateStabilizers();
+    }
+
+    updateQubitAppearance(qubit) {
         var opacityLevel = this.opacityActivated ? 'min' : 'max';
         if (qubit.hasError['X'] || qubit.hasError['Z']) {
             qubit.material.opacity = qubit.opacity['activated'][opacityLevel]
@@ -78,6 +86,14 @@ class TopologicalCode {
                 qubit.material.color.setHex(qubit.color['Z']);
             }
         }
+        else if (this.weldActivated && qubit.weld) {
+            qubit.material.opacity = qubit.weld['opacity'];
+            qubit.material.color.setHex(qubit.weld['color']);
+        }
+        else if (this.weldActivated) {
+            qubit.material.opacity = qubit.opacity['deactivated']['min'];
+            qubit.material.color.setHex(qubit.color['I']);
+        }
         else {
             qubit.material.opacity = qubit.opacity['deactivated'][opacityLevel]
             qubit.material.color.setHex(qubit.color['I']);
@@ -85,9 +101,6 @@ class TopologicalCode {
 
         // Prevents a weird glitch with opacity-0 objects
         qubit.visible = (qubit.material.opacity != 0)
-
-        if (updateStabilizers)
-            this.updateStabilizers();
     }
 
     displayLogical(logical, pauli) {
@@ -113,22 +126,20 @@ class TopologicalCode {
     changeOpacity() {
         this.opacityActivated = !this.opacityActivated
 
-        var opacityLevel = this.opacityActivated ? 'min' : 'max';
+        this.qubits.forEach(q => this.updateQubitAppearance(q));
+        this.stabilizers.forEach(s => this.toggleStabilizer(s, s.isActivated));
+    }
 
-        this.qubits.forEach(q => {
-            let activatedStr = (q.hasError['X'] || q.hasError['Z']) ? 'activated' : 'deactivated';
-            q.material.opacity = q.opacity[activatedStr][opacityLevel];
-            q.visible = (q.material.opacity != 0)
-        });
+    // Highlight the contracted qubits and welded stabilizers of welded codes
+    toggleWeld() {
+        if (!this.qubits.some(q => q.weld) && !this.stabilizers.some(s => s.weld)) {
+            return;
+        }
 
-        this.stabilizers.forEach(s => {
-            let activatedStr = s.isActivated ? 'activated' : 'deactivated';
-            s.material.opacity = s.opacity[activatedStr][opacityLevel];
-            s.visible = (s.material.opacity != 0)
-            if (s.children.length > 0 && s.children[0].type == 'LineSegments') {
-                s.children[0].material.opacity = s.material.opacity;
-            }
-        });
+        this.weldActivated = !this.weldActivated;
+
+        this.qubits.forEach(q => this.updateQubitAppearance(q));
+        this.stabilizers.forEach(s => this.toggleStabilizer(s, s.isActivated));
     }
 
     toggleStabilizer(stabilizer, activate) {
@@ -141,6 +152,9 @@ class TopologicalCode {
         var opacityLevel = this.opacityActivated ? 'min' : 'max'
 
         stabilizer.material.opacity = stabilizer.opacity[activateStr][opacityLevel];
+        if (this.weldActivated && !activate) {
+            stabilizer.material.opacity = stabilizer.weld ? stabilizer.weld['opacity'] : 0;
+        }
         stabilizer.material.color.setHex(stabilizer.color[activateStr]);
 
         // Prevents a weird glitch with opacity-0 objects
@@ -160,6 +174,7 @@ class TopologicalCode {
         qubit.index = index;
         qubit.color = this.qubitData[index]['color'];
         qubit.opacity = this.qubitData[index]['opacity'];
+        qubit.weld = this.qubitData[index]['weld'];
 
         return qubit
     }
@@ -173,6 +188,7 @@ class TopologicalCode {
         stabilizer.color = this.stabilizerData[index]['color'];
         stabilizer.opacity = this.stabilizerData[index]['opacity'];
         stabilizer.type = this.stabilizerData[index]['type'];
+        stabilizer.weld = this.stabilizerData[index]['weld'];
 
         return stabilizer
     }

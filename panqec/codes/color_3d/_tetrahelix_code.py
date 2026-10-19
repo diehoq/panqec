@@ -33,10 +33,17 @@ class TetrahelixCode(WeldedCode):
     the weight-two stabilizers of each pair of facet qubits are used to
     contract the pair into a single qubit.
 
+    With ``weld_pauli = 'X'``, the faces touching each shared facet are
+    welded instead and the cells are kept. Since the faces are not linearly
+    independent on a facet, the welded faces are the products of faces with
+    the same restriction on both sides of every shared facet.
+
     The code encodes one logical qubit in
-    ``L_y (d^3 + d)/2 - (L_y - 1)(3 d^2 + 1)/4`` physical qubits, with an X
-    logical along an edge of a single tetrahedron (weight ``d``) and a Z
-    logical on a facet of every tetrahedron.
+    ``L_y (d^3 + d)/2 - (L_y - 1)(3 d^2 + 1)/4`` physical qubits. The logical
+    of Pauli type ``weld_pauli`` is spread over every tetrahedron (a facet for
+    Z, the edge between the first two shared facets for X, which makes the X
+    distance grow with ``L_y``), and the other one is supported on the first
+    tetrahedron only (an edge for X, a facet for Z).
 
     Parameters
     ----------
@@ -46,11 +53,13 @@ class TetrahelixCode(WeldedCode):
         Number of tetrahedra in the helix (``L_x`` by default)
     L_z : int, optional
         Must be equal to ``L_x`` if given
+    weld_pauli : str, optional
+        Type of the welds, ``'Z'`` (cells are welded, default) or ``'X'``
+        (faces are welded)
     """
 
     dimension = 3
     deformation_names: List[str] = []
-    weld_pauli = 'Z'
 
     _COLORS = TetrahedralColor3DCode._COLORS
 
@@ -64,6 +73,7 @@ class TetrahelixCode(WeldedCode):
         L_x: int,
         L_y: Optional[int] = None,
         L_z: Optional[int] = None,
+        weld_pauli: str = 'Z',
     ):
         if L_x < 3 or L_x % 2 == 0:
             raise ValueError(
@@ -77,14 +87,23 @@ class TetrahelixCode(WeldedCode):
             )
         if L_z is not None and L_z != L_x:
             raise ValueError("TetrahelixCode expects L_z to be equal to L_x")
+        if weld_pauli not in ('X', 'Z'):
+            raise ValueError("TetrahelixCode expects weld_pauli to be X or Z")
 
         self._helix_maps: List[np.ndarray] = []
 
-        super().__init__(L_x, L_y, L_x)
+        super().__init__(L_x, L_y, L_x, weld_pauli=weld_pauli)
 
     @property
     def label(self) -> str:
-        return f'Tetrahelix d={self.L_x} ({self.L_y} tetrahedra)'
+        return (
+            f'Tetrahelix d={self.L_x} ({self.L_y} tetrahedra, '
+            f'{self.weld_pauli} weld)'
+        )
+
+    @property
+    def params(self) -> dict:
+        return {**super().params, 'weld_pauli': self.weld_pauli}
 
     @property
     def distance(self) -> int:
@@ -138,19 +157,28 @@ class TetrahelixCode(WeldedCode):
         ]
 
     def get_logicals_x(self) -> List[Operator]:
-        edge = self.edge(self.tetrahedron, self._COLORS[2], self._COLORS[3])
+        # For X welds, the edge between the first two shared facets is
+        # contracted in three consecutive tetrahedra, which gives the lightest
+        # representative
+        colors = self._COLORS[2:] if self.weld_pauli == 'Z' \
+            else self._COLORS[:2]
+        edge = self.edge(self.tetrahedron, *colors)
 
-        return [self.welded_operator({0: {qubit: 'X' for qubit in edge}})]
+        return [self._logical(edge, 'X')]
 
     def get_logicals_z(self) -> List[Operator]:
         facet = self.facet(self.tetrahedron, self._COLORS[0])
 
-        return [
-            self.welded_operator({
-                i: {qubit: 'Z' for qubit in facet}
-                for i in range(self.n_tetrahedra)
-            })
-        ]
+        return [self._logical(facet, 'Z')]
+
+    def _logical(self, support: List[Tetra], pauli: str) -> Operator:
+        """Logical acting on the given support of every tetrahedron if it has
+        the Pauli type of the welds, and of the first tetrahedron otherwise"""
+        n_copies = self.n_tetrahedra if pauli == self.weld_pauli else 1
+
+        return self.welded_operator({
+            i: {qubit: pauli for qubit in support} for i in range(n_copies)
+        })
 
     def qubit_representation(
         self, location: Tuple, rotated_picture=False, json_file=None

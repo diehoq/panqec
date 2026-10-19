@@ -2453,6 +2453,15 @@
         }
     },
     "TetrahelixCode": {
+        "weld": {
+            "qubit": {
+                "color": "orange",
+                "opacity": 1
+            },
+            "stabilizer": {
+                "opacity": 0.6
+            }
+        },
         "qubits": {
             "kitaev": {
                 "object": "sphere",
