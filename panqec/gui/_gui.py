@@ -13,7 +13,7 @@ from panqec.codes import (
     Planar3DCode, RotatedToric3DCode, XCubeCode,
     HollowPlanar3DCode, HollowRhombicCode,
     Color3DCode, Color666PlanarCode, Color666ToricCode, Color488Code,
-    TetrahedralColor3DCode
+    TetrahedralColor3DCode, TetrahelixCode
 )
 from panqec.decoders import (
     MatchingDecoder, RotatedSweepMatchDecoder,
@@ -41,7 +41,8 @@ codes = {
     'Hollow Planar 3D': HollowPlanar3DCode,
     'Hollow Rhombic Code': HollowRhombicCode,
     '3D Color Code': Color3DCode,
-    'Tetrahedral Color Code': TetrahedralColor3DCode
+    'Tetrahedral Color Code': TetrahedralColor3DCode,
+    'Tetrahelix Code': TetrahelixCode
 }
 
 noise_directions = {'Pure X': (1, 0, 0),

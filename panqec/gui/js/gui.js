@@ -221,7 +221,8 @@ class Interface {
         this.params.Ly = this.params.Lx;
         this.params.Lz = this.params.Lx;
 
-        if (this.params.codeName == 'Tetrahedral Color Code') {
+        if (this.params.codeName == 'Tetrahedral Color Code'
+            || this.params.codeName == 'Tetrahelix Code') {
             this.params.Lx = Math.max(3, this.params.Lx);
             if (this.params.Lx % 2 == 0) {
                 this.params.Lx += 1;

@@ -4,6 +4,7 @@ List of all stabilizer codes
 
 from .base._stabilizer_code import StabilizerCode  # noqa
 from .base._subsystem_code import SubsystemCode  # noqa
+from .base._welded_code import WeldedCode  # noqa
 from .surface_2d._toric_2d_code import Toric2DCode  # noqa
 from .surface_2d._planar_2d_code import Planar2DCode  # noqa
 from .surface_2d._rotated_planar_2d_code import RotatedPlanar2DCode  # noqa
@@ -21,12 +22,14 @@ from .surface_3d._rotated_toric_3d_code import RotatedToric3DCode  # noqa
 from .fractons._xcube_code import XCubeCode  # noqa
 from .color_3d._color_3d_code import Color3DCode  # noqa
 from .color_3d._tetrahedral_color_3d_code import TetrahedralColor3DCode  # noqa
+from .color_3d._tetrahelix_code import TetrahelixCode  # noqa
 from .bacon_shor._bacon_shor_code import BaconShorCode  # noqa
 
 
 __all__ = [
     "StabilizerCode",
     "SubsystemCode",
+    "WeldedCode",
     "Toric2DCode",
     "Planar2DCode",
     "RotatedPlanar2DCode",
@@ -45,5 +48,6 @@ __all__ = [
     "XCubeCode",
     "Color3DCode",
     "BaconShorCode",
-    "TetrahedralColor3DCode"
+    "TetrahedralColor3DCode",
+    "TetrahelixCode"
 ]
