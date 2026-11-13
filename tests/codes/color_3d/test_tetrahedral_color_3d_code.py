@@ -28,6 +28,13 @@ def barycentric_weights(point, corners):
     return np.linalg.solve(matrix, rhs)
 
 
+def qubits_by_position(code):
+    return {
+        tuple(np.round(code.qubit_representation(qubit)['location'], 8)): qubit
+        for qubit in code.qubit_coordinates
+    }
+
+
 @pytest.fixture(params=[3, 5, 7, 9])
 def code(request):
     return TetrahedralColor3DCode(request.param)
@@ -141,11 +148,19 @@ def test_stabilizers_match_primal_face_and_cell_supports(d):
 def test_logicals_have_expected_boundary_supports(code):
     d = code.distance
     m = (d - 1)//2
+    boundaries = code.boundary_vertices
     logical_x = code.get_logicals_x()[0]
     logical_z = code.get_logicals_z()[0]
 
-    assert len(logical_x) == 3*m*(m + 1) + 1
+    # X on the edge between the blue and yellow facets, Z on the red facet
+    assert len(logical_x) == d
+    for tetra in logical_x:
+        assert boundaries['blue'] in tetra.vertices
+        assert boundaries['yellow'] in tetra.vertices
+
     assert len(logical_z) == 3*m*(m + 1) + 1
+    for tetra in logical_z:
+        assert boundaries['red'] in tetra.vertices
 
     logical_commutator = bs_prod(code.logicals_x, code.logicals_z)
     assert np.array_equal(to_array(logical_commutator), np.eye(1))
@@ -158,6 +173,36 @@ def test_logicals_have_expected_boundary_supports(code):
     )
     assert np.all(to_array(x_stabilizer_commutators) == 0)
     assert np.all(to_array(z_stabilizer_commutators) == 0)
+
+
+def test_distance_is_d(code):
+    """code.d only looks at the logicals given, so the X logical must be one
+    of the lightest (an edge of the tetrahedron, not a facet)"""
+    assert code.d == code.distance
+
+
+def test_no_logical_of_weight_below_three():
+    code = TetrahedralColor3DCode(3)
+    n = code.n
+    Hx = to_array(code.Hx)
+    Hz = to_array(code.Hz)
+    logical_x = code.logicals_x[:, :n]
+    logical_z = code.logicals_z[:, n:]
+
+    for weight in [1, 2]:
+        for support in combinations(range(n), weight):
+            error = np.zeros(n, dtype='uint8')
+            error[list(support)] = 1
+
+            is_x_logical = (
+                not np.any(Hz.dot(error) % 2)
+                and np.any(logical_z.dot(error) % 2)
+            )
+            is_z_logical = (
+                not np.any(Hx.dot(error) % 2)
+                and np.any(logical_x.dot(error) % 2)
+            )
+            assert not is_x_logical and not is_z_logical
 
 
 def test_primal_qubit_positions_form_tetrahedron(code):
@@ -252,3 +297,80 @@ def test_primal_visual_representations_are_generated(d):
             assert len(rep['params']['edges']) > 0
 
     assert seen_cell_colors == expected_cell_colors
+
+
+@pytest.mark.parametrize("d", [3, 5, 7, 9])
+def test_stabilizer_meshes_follow_primal_edges(d):
+    """The edges of every mesh are the edges of the primal face or cell, i.e.
+    they join qubits whose dual tetrahedra share a triangle, so that no face
+    is drawn as a self-intersecting polygon"""
+    code = TetrahedralColor3DCode(d)
+    qubit_at = qubits_by_position(code)
+
+    for location in code.stabilizer_coordinates:
+        params = code.stabilizer_representation(location)['params']
+        qubits = [
+            qubit_at[tuple(np.round(vertex, 8))]
+            for vertex in np.reshape(params['vertices'], (-1, 3))
+        ]
+        support = code.get_stabilizer(location)
+        assert sorted(qubits) == sorted(support)
+
+        mesh_edges = {
+            frozenset((qubits[a], qubits[b]))
+            for a, b in np.reshape(params['edges'], (-1, 2))
+        }
+        primal_edges = {
+            frozenset((tetra_a, tetra_b))
+            for tetra_a, tetra_b in combinations(support, 2)
+            if len(set(tetra_a.vertices) & set(tetra_b.vertices)) == 3
+        }
+        assert mesh_edges == primal_edges
+
+
+@pytest.mark.parametrize("d", [3, 5, 9, 13])
+def test_cell_meshes_are_closed_and_oriented_outwards(d):
+    """Every cell is drawn as a closed surface with all its triangles facing
+    outwards, including faces whose first vertices are collinear and cells
+    that are far from convex"""
+    code = TetrahedralColor3DCode(d)
+
+    for location in code.stabilizer_coordinates:
+        if location[0] != 'Z':
+            continue
+
+        params = code.stabilizer_representation(location)['params']
+        vertices = np.reshape(params['vertices'], (-1, 3))
+        triangles = np.reshape(params['triangles'], (-1, 3)).tolist()
+
+        # Every edge is crossed once in each direction
+        directed_edges = [
+            (triangle[i], triangle[(i + 1) % 3])
+            for triangle in triangles
+            for i in range(3)
+        ]
+        assert len(set(directed_edges)) == len(directed_edges)
+        assert set(directed_edges) == {(b, a) for a, b in directed_edges}
+
+        volume = sum(
+            np.dot(vertices[a], np.cross(vertices[b], vertices[c]))
+            for a, b, c in triangles
+        ) / 6
+        assert volume > 0
+
+
+def test_stabilizer_locations_are_centers_of_their_supports(code):
+    """Stabilizers are located at the center of their qubits, in the same
+    frame as the qubits and the meshes"""
+    positions = {
+        qubit: code.qubit_representation(qubit)['location']
+        for qubit in code.qubit_coordinates
+    }
+
+    for location in code.stabilizer_coordinates:
+        center = np.mean(
+            [positions[qubit] for qubit in code.get_stabilizer(location)],
+            axis=0,
+        )
+        rep = code.stabilizer_representation(location)
+        assert rep['location'] == pytest.approx(center.tolist())

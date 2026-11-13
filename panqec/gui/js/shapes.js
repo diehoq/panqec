@@ -180,7 +180,17 @@ function polyhedron(location, params) {
                                                  side: THREE.DoubleSide});
     const polyhedron = new THREE.Mesh(geometry, material);
 
-    var geo = new THREE.EdgesGeometry(polyhedron.geometry);
+    // Use the edges given by the code if any, since EdgesGeometry would also
+    // draw the diagonals of the triangulation of non-planar faces
+    var geo;
+    if ('edges' in params) {
+        geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(params.vertices, 3));
+        geo.setIndex(params.edges);
+    }
+    else {
+        geo = new THREE.EdgesGeometry(polyhedron.geometry);
+    }
     var mat = new THREE.LineBasicMaterial({color: 0x000000, linewidth: 2,
                                            opacity: 0, transparent: true });
     var wireframe = new THREE.LineSegments(geo, mat);

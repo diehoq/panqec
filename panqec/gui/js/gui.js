@@ -226,9 +226,10 @@ class Interface {
 
         if (this.params.codeName == 'Tetrahedral Color Code'
             || this.params.codeName == 'Tetrahelix Code') {
+            // The distance must be odd, and stay in the lattice size menu
             this.params.Lx = Math.max(3, this.params.Lx);
             if (this.params.Lx % 2 == 0) {
-                this.params.Lx += 1;
+                this.params.Lx = Math.min(this.params.Lx + 1, 11);
             }
             this.params.Ly = this.params.Lx;
             this.params.Lz = this.params.Lx;

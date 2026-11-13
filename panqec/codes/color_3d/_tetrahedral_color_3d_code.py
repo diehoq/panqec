@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections import deque
 from itertools import combinations
-from math import atan2, sqrt
 from typing import Dict, Iterable, List, Tuple
 
 import numpy as np
@@ -74,13 +73,6 @@ class TetrahedralColor3DCode(StabilizerCode):
         'yellow': np.array([-1.0, -1.0, 1.0], dtype=float),
     }
 
-    _COLOR_OFFSETS = {
-        'red': np.array([0.22, 0.22, 0.22], dtype=float),
-        'green': np.array([0.22, -0.22, -0.22], dtype=float),
-        'blue': np.array([-0.22, 0.22, -0.22], dtype=float),
-        'yellow': np.array([-0.22, -0.22, 0.22], dtype=float),
-    }
-
     def __init__(
         self,
         L_x: int,
@@ -108,7 +100,6 @@ class TetrahedralColor3DCode(StabilizerCode):
         self._vertex_to_tetras: Dict[Node, List[Tetra]] = {}
         self._edge_to_tetras: Dict[Edge, List[Tetra]] = {}
         self._vertex_to_edges: Dict[Node, List[Edge]] = {}
-        self._dual_vertex_positions: Dict[Node, np.ndarray] = {}
         self._tetra_positions: Dict[Tetra, np.ndarray] = {}
         self._cell_mesh_cache: Dict[
             Node, Dict[str, List[float] | List[int]]
@@ -221,12 +212,16 @@ class TetrahedralColor3DCode(StabilizerCode):
 
     def get_logicals_x(self) -> List[Operator]:
         self._ensure_lattice()
-        boundary = self.boundary_vertices['red']
+        # Edge of the tetrahedron between the blue and yellow boundaries, of
+        # weight d, which crosses the red facet of the Z logical at a corner
+        boundary_edge = self._edge(
+            self.boundary_vertices['blue'], self.boundary_vertices['yellow']
+        )
 
         return [
             {
                 tetra: 'X'
-                for tetra in self._vertex_to_tetras[boundary]
+                for tetra in self._edge_to_tetras[boundary_edge]
             }
         ]
 
@@ -261,13 +256,12 @@ class TetrahedralColor3DCode(StabilizerCode):
         pauli, simplex = location
         if pauli == 'X':
             mesh = self._face_mesh(simplex)
-            rep['location'] = self._edge_position(simplex).tolist()
         elif pauli == 'Z':
             mesh = self._cell_mesh(simplex)
-            rep['location'] = self._dual_vertex_positions[simplex].tolist()
         else:
             raise ValueError(f"Invalid stabilizer Pauli {pauli}")
 
+        rep['location'] = self._center(self.get_stabilizer(location)).tolist()
         rep['params']['vertices'] = mesh['vertices']
         rep['params']['triangles'] = mesh['triangles']
         rep['params']['edges'] = mesh['edges']
@@ -317,10 +311,6 @@ class TetrahedralColor3DCode(StabilizerCode):
         self._vertex_to_edges = {
             vertex: sorted(incident_edges)
             for vertex, incident_edges in vertex_to_edges.items()
-        }
-        self._dual_vertex_positions = {
-            vertex: self._dual_vertex_position(vertex)
-            for vertex in self._dual_vertices
         }
         self._tetra_positions = self._primal_tetra_positions()
         self._lattice_built = True
@@ -702,43 +692,6 @@ class TetrahedralColor3DCode(StabilizerCode):
 
         return vertex[0]
 
-    def _dual_vertex_position(self, vertex: Node) -> np.ndarray:
-        m = (self.distance - 1) // 2
-        height = max(m - 1, 1)
-        base_centroid_y = 2*height*sqrt(3)/3
-
-        if self._is_boundary_vertex(vertex):
-            radius = max(m + 1, 2)
-            boundary_positions = {
-                self._BOUNDARY_BY_SIDE['left']: np.array(
-                    [-radius, base_centroid_y/2, height/2], dtype=float
-                ),
-                self._BOUNDARY_BY_SIDE['right']: np.array(
-                    [radius, base_centroid_y/2, height/2], dtype=float
-                ),
-                self._BOUNDARY_BY_SIDE['center']: np.array(
-                    [0, base_centroid_y + radius, height/2], dtype=float
-                ),
-                self._BOUNDARY_BY_SIDE['bottom']: np.array(
-                    [0, base_centroid_y/2, -radius], dtype=float
-                ),
-            }
-            return boundary_positions[vertex]
-
-        color, col, row, layer = vertex
-        layer_height = max(layer - 1, 0)
-        layer_centroid_y = 2*layer_height*sqrt(3)/3
-        position = np.array(
-            [
-                float(col),
-                row*sqrt(3)/2 + base_centroid_y - layer_centroid_y,
-                (m - layer)*sqrt(6)/2,
-            ],
-            dtype=float,
-        )
-
-        return position + self._COLOR_OFFSETS[color]
-
     def _cell_mesh(self, vertex: Node) -> Dict[str, List[float] | List[int]]:
         if vertex in self._cell_mesh_cache:
             return self._cell_mesh_cache[vertex]
@@ -755,30 +708,23 @@ class TetrahedralColor3DCode(StabilizerCode):
 
             return vertex_indices[tetra]
 
-        cell_center = np.mean(
+        faces = [
             [
-                self._tetra_positions[tetra]
-                for tetra in self._vertex_to_tetras[vertex]
-            ],
-            axis=0,
-        )
-
-        for edge in self._vertex_to_edges[vertex]:
-            face_tetras = [
-                tetra
-                for tetra in self._edge_to_tetras[edge]
-                if vertex in tetra.vertices
+                add_vertex(tetra)
+                for tetra in self._order_tetras_around_edge(edge)
             ]
-            if len(face_tetras) < 3:
-                continue
+            for edge in self._vertex_to_edges[vertex]
+        ]
 
-            ordered_tetras = self._order_tetras_around_cell_face(
-                face_tetras, cell_center
-            )
-            face_indices = [add_vertex(tetra) for tetra in ordered_tetras]
-            self._append_oriented_face_triangles(
-                triangles, vertices, face_indices, cell_center, mesh_edges
-            )
+        for face in self._orient_faces(faces, vertices):
+            for i, vertex_index in enumerate(face):
+                next_vertex_index = face[(i + 1) % len(face)]
+                mesh_edges.add(
+                    tuple(sorted((vertex_index, next_vertex_index)))
+                )
+
+            for i in range(1, len(face) - 1):
+                triangles.extend([face[0], face[i], face[i + 1]])
 
         edges = [
             vertex_index
@@ -790,81 +736,64 @@ class TetrahedralColor3DCode(StabilizerCode):
 
         return mesh
 
-    def _append_oriented_face_triangles(
+    def _orient_faces(
         self,
-        triangles: List[int],
+        faces: List[List[int]],
         vertices: List[float],
-        face_indices: List[int],
-        cell_center: np.ndarray,
-        mesh_edges: set[Tuple[int, int]] | None = None,
-    ) -> None:
-        if len(face_indices) < 3:
-            return
+    ) -> List[List[int]]:
+        """Orient the faces of a closed surface consistently, so that every
+        edge is crossed once in each direction, and outwards, so that the
+        enclosed volume is positive.
 
-        points = [
-            np.array(vertices[3*index:3*index + 3])
-            for index in face_indices
-        ]
-        face_center = np.mean(points, axis=0)
-        normal = np.cross(points[1] - points[0], points[2] - points[0])
-        outward = face_center - cell_center
+        The orientation is propagated from face to face through their shared
+        edges, which does not depend on the shape of the faces.
+        """
+        faces_by_edge: Dict[frozenset, List[int]] = {}
+        for i_face, face in enumerate(faces):
+            for i, vertex_index in enumerate(face):
+                edge = frozenset((vertex_index, face[(i + 1) % len(face)]))
+                faces_by_edge.setdefault(edge, []).append(i_face)
 
-        if float(np.dot(normal, outward)) < 0:
-            face_indices = [face_indices[0], *reversed(face_indices[1:])]
+        oriented = {0: faces[0]}
+        queue = deque([0])
+        while queue:
+            face = oriented[queue.popleft()]
+            for i, vertex_index in enumerate(face):
+                next_vertex_index = face[(i + 1) % len(face)]
+                edge = frozenset((vertex_index, next_vertex_index))
+                for i_neighbor in faces_by_edge[edge]:
+                    if i_neighbor in oriented:
+                        continue
 
-        if mesh_edges is not None:
-            for i, vertex_index in enumerate(face_indices):
-                next_vertex_index = face_indices[(i + 1) % len(face_indices)]
-                mesh_edges.add(tuple(sorted((vertex_index, next_vertex_index))))
+                    # The neighbor must cross the shared edge backwards
+                    neighbor = faces[i_neighbor]
+                    position = neighbor.index(vertex_index)
+                    if neighbor[position - 1] != next_vertex_index:
+                        neighbor = neighbor[::-1]
 
-        for i in range(1, len(face_indices) - 1):
-            triangles.extend([
-                face_indices[0],
-                face_indices[i],
-                face_indices[i + 1],
-            ])
+                    oriented[i_neighbor] = neighbor
+                    queue.append(i_neighbor)
 
-    def _order_tetras_around_cell_face(
-        self,
-        tetras: List[Tetra],
-        cell_center: np.ndarray,
-    ) -> List[Tetra]:
-        points = np.array([
-            self._tetra_positions[tetra]
-            for tetra in tetras
-        ])
-        face_center = np.mean(points, axis=0)
-        normal = face_center - cell_center
-        norm = np.linalg.norm(normal)
-        if norm == 0:
-            return sorted(tetras)
+        if len(oriented) != len(faces):
+            raise ValueError("The faces do not form a connected surface")
 
-        normal = normal / norm
-        reference = np.array([0.0, 0.0, 1.0])
-        if abs(float(np.dot(normal, reference))) > 0.9:
-            reference = np.array([0.0, 1.0, 0.0])
-
-        axis_u = np.cross(normal, reference)
-        axis_u = axis_u / np.linalg.norm(axis_u)
-        axis_v = np.cross(normal, axis_u)
-
-        angles = []
-        for tetra, point in zip(tetras, points):
-            relative = point - face_center
-            angle = atan2(
-                float(np.dot(relative, axis_v)),
-                float(np.dot(relative, axis_u)),
+        points = np.reshape(vertices, (-1, 3))
+        oriented_faces = [oriented[i_face] for i_face in range(len(faces))]
+        volume = sum(
+            np.dot(
+                points[face[0]],
+                np.cross(points[face[i]], points[face[i + 1]]),
             )
-            angles.append((angle, tetra))
+            for face in oriented_faces
+            for i in range(1, len(face) - 1)
+        )
+        if volume < 0:
+            oriented_faces = [face[::-1] for face in oriented_faces]
 
-        return [
-            tetra
-            for _, tetra in sorted(angles, key=lambda item: item[0])
-        ]
+        return oriented_faces
 
     def _face_mesh(self, edge: Edge) -> Dict[str, List[float] | List[int]]:
-        face_tetras = self._edge_to_tetras[edge]
-        ordered_tetras = self._order_tetras_around_edge(edge, face_tetras)
+        ordered_tetras = self._order_tetras_around_edge(edge)
         vertices = []
 
         for tetra in ordered_tetras:
@@ -879,57 +808,49 @@ class TetrahedralColor3DCode(StabilizerCode):
 
         return {'vertices': vertices, 'triangles': triangles, 'edges': edges}
 
-    def _order_tetras_around_edge(
-        self,
-        edge: Edge,
-        tetras: List[Tetra],
-    ) -> List[Tetra]:
-        points = np.array([
-            self._tetra_positions[tetra]
-            for tetra in tetras
-        ])
-        center = np.mean(points, axis=0)
-        normal = (
-            self._dual_vertex_positions[edge[1]]
-            - self._dual_vertex_positions[edge[0]]
-        )
-        norm = np.linalg.norm(normal)
-        if norm == 0:
-            normal = np.array([0.0, 0.0, 1.0])
-        else:
-            normal = normal / norm
+    def _order_tetras_around_edge(self, edge: Edge) -> List[Tetra]:
+        """Tetrahedra containing the dual edge, in cyclic order around it.
 
-        reference = np.array([0.0, 0.0, 1.0])
-        if abs(float(np.dot(normal, reference))) > 0.9:
-            reference = np.array([0.0, 1.0, 0.0])
+        Consecutive tetrahedra share a dual triangle, i.e. their qubits are
+        joined by an edge of the primal face. The order only depends on the
+        lattice, not on the positions of the qubits.
+        """
+        tetras = self._edge_to_tetras[edge]
+        tetras_by_vertex: Dict[Node, List[Tetra]] = {}
+        for tetra in tetras:
+            for vertex in tetra.vertices:
+                if vertex not in edge:
+                    tetras_by_vertex.setdefault(vertex, []).append(tetra)
 
-        axis_u = np.cross(normal, reference)
-        axis_u = axis_u / np.linalg.norm(axis_u)
-        axis_v = np.cross(normal, axis_u)
+        ordered = [tetras[0]]
+        vertex = next(v for v in tetras[0].vertices if v not in edge)
+        while len(ordered) < len(tetras):
+            neighbors = [
+                tetra for tetra in tetras_by_vertex[vertex]
+                if tetra != ordered[-1]
+            ]
+            if len(neighbors) != 1:
+                raise ValueError(
+                    f"The link of the dual edge {edge} is not a cycle"
+                )
 
-        angles = []
-        for tetra, point in zip(tetras, points):
-            relative = point - center
-            angle = atan2(
-                float(np.dot(relative, axis_v)),
-                float(np.dot(relative, axis_u)),
+            ordered.append(neighbors[0])
+            vertex = next(
+                v for v in neighbors[0].vertices
+                if v not in edge and v != vertex
             )
-            angles.append((angle, tetra))
 
-        return [
-            tetra
-            for _, tetra in sorted(angles, key=lambda item: item[0])
-        ]
+        return ordered
 
     def _edge(self, vertex_a: Node, vertex_b: Node) -> Edge:
         edge = tuple(sorted((vertex_a, vertex_b)))
         return edge  # type: ignore[return-value]
 
-    def _edge_position(self, edge: Edge) -> np.ndarray:
+    def _center(self, tetras: Iterable[Tetra]) -> np.ndarray:
         return np.mean(
             [
-                self._dual_vertex_positions[vertex]
-                for vertex in edge
+                self._tetra_positions[tetra]
+                for tetra in tetras
             ],
             axis=0,
         )
